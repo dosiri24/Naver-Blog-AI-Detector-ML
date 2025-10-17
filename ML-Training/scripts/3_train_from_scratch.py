@@ -66,6 +66,11 @@ class TrainingConfig:
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
+        # Get absolute project root (ML-Training/)
+        # This ensures all paths are relative to ML-Training/ folder
+        if not hasattr(self, '_project_root'):
+            self._project_root = PROJECT_ROOT
+
         # Data paths
         data_config = config.get("data", {})
         self.real_data_path = data_config.get("real_data")
@@ -91,9 +96,19 @@ class TrainingConfig:
         # Scheduler
         self.lr_scheduler_type = train_config.get("lr_scheduler_type", "cosine")
 
-        # Checkpointing
+        # Checkpointing - convert to absolute path
         checkpoint_config = config.get("checkpointing", {})
-        self.output_dir = checkpoint_config.get("output_dir", "models/checkpoints")
+        output_dir = checkpoint_config.get("output_dir", "models/checkpoints")
+
+        # Convert relative path to absolute path (relative to ML-Training/)
+        if not Path(output_dir).is_absolute():
+            # Remove "ML-Training/" prefix if present (from YAML)
+            if output_dir.startswith("ML-Training/"):
+                output_dir = output_dir.replace("ML-Training/", "", 1)
+            self.output_dir = str(self._project_root / output_dir)
+        else:
+            self.output_dir = output_dir
+
         self.logging_steps = train_config.get("logging_steps", 50)
         self.eval_steps = train_config.get("eval_steps", 200)
         self.save_steps = train_config.get("save_steps", 200)
@@ -263,7 +278,7 @@ def train_model(
         eval_steps=config.eval_steps,
         save_steps=config.save_steps,
         save_total_limit=config.save_total_limit,
-        evaluation_strategy="steps",
+        eval_strategy="steps",  # Changed from evaluation_strategy (deprecated)
         save_strategy="steps",
         load_best_model_at_end=True,
         metric_for_best_model="f1",
@@ -419,27 +434,81 @@ def main():
 
     # Create tokenizer
     print(f"\n📝 Creating tokenizer ({args.tokenizer_type})...")
-    tokenizer = create_tokenizer(
-        tokenizer_type=args.tokenizer_type,
-        vocab_size=8000,
-    )
+
+    # For SentencePiece, we need to train on data first
+    if args.tokenizer_type == "sentencepiece":
+        print("  Loading training data for tokenizer training...")
+
+        # Load real and synthetic data
+        real_data = load_real_data(config.real_data_path)
+        synthetic_data = load_synthetic_data(config.synthetic_data_path)
+        all_data = real_data + synthetic_data
+
+        # Extract texts for tokenizer training
+        train_texts = [sample.get("text", "") for sample in all_data if sample.get("text")]
+
+        print(f"  Training tokenizer on {len(train_texts):,} samples...")
+
+        from utils.tokenizer import create_sentencepiece_tokenizer
+        tokenizer = create_sentencepiece_tokenizer(
+            vocab_size=8000,
+            model_prefix="korean_blog_tokenizer",
+            model_dir=str(PROJECT_ROOT / "utils"),
+            train_data=train_texts,
+        )
+    else:
+        # Use pretrained tokenizer (solar, exaone, kobert)
+        tokenizer = create_tokenizer(
+            tokenizer_type=args.tokenizer_type,
+            vocab_size=8000,
+        )
 
     # Save tokenizer immediately (for Swift integration)
     tokenizer_save_dir = Path(config.output_dir) / "tokenizer"
     tokenizer_save_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n💾 Saving tokenizer to {tokenizer_save_dir}...")
-    tokenizer.save_pretrained(str(tokenizer_save_dir))
 
-    # Also save vocab.txt separately for easy Swift access
-    vocab_file = tokenizer_save_dir / "vocab.txt"
-    print(f"✅ Tokenizer saved with vocab.txt ({tokenizer.vocab_size:,} tokens)")
-    print(f"   Location: {vocab_file}")
-    print(f"   ⚠️  IMPORTANT: Use this vocab.txt for Swift integration!")
+    # Save based on tokenizer type
+    if args.tokenizer_type == "sentencepiece":
+        # SentencePiece tokenizer is already saved during training
+        # Just copy the model files to tokenizer_save_dir
+        import shutil
+        sp_model_path = PROJECT_ROOT / "utils" / "korean_blog_tokenizer.model"
+        sp_vocab_path = PROJECT_ROOT / "utils" / "korean_blog_tokenizer.vocab"
+
+        if sp_model_path.exists():
+            shutil.copy(sp_model_path, tokenizer_save_dir / "korean_blog_tokenizer.model")
+            print(f"  ✓ Copied {sp_model_path.name}")
+
+        if sp_vocab_path.exists():
+            shutil.copy(sp_vocab_path, tokenizer_save_dir / "korean_blog_tokenizer.vocab")
+            print(f"  ✓ Copied {sp_vocab_path.name}")
+
+        print(f"✅ SentencePiece tokenizer saved ({tokenizer.vocab_size:,} tokens)")
+        print(f"   Model: {tokenizer_save_dir / 'korean_blog_tokenizer.model'}")
+        print(f"   Vocab: {tokenizer_save_dir / 'korean_blog_tokenizer.vocab'}")
+        print(f"   ⚠️  IMPORTANT: Use korean_blog_tokenizer.model for Swift integration!")
+    else:
+        # Pretrained tokenizer (has save_pretrained method)
+        tokenizer.save_pretrained(str(tokenizer_save_dir))
+        vocab_file = tokenizer_save_dir / "vocab.txt"
+        print(f"✅ Tokenizer saved with vocab.txt ({tokenizer.vocab_size:,} tokens)")
+        print(f"   Location: {vocab_file}")
+        print(f"   ⚠️  IMPORTANT: Use this vocab.txt for Swift integration!")
 
     # Load model
     print(f"\n🏗️  Loading model from {args.model_config}...")
-    from scripts.build_model import TinyTransformerConfig, create_tiny_transformer
+
+    # Import 2_build_model.py dynamically (Python can't import modules starting with numbers)
+    import importlib.util
+    build_model_path = PROJECT_ROOT / "scripts" / "2_build_model.py"
+    spec = importlib.util.spec_from_file_location("build_model", build_model_path)
+    build_model = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build_model)
+
+    TinyTransformerConfig = build_model.TinyTransformerConfig
+    create_tiny_transformer = build_model.create_tiny_transformer
 
     model_config = TinyTransformerConfig(args.model_config)
     model = create_tiny_transformer(model_config)

@@ -138,6 +138,11 @@ class ModelOptimizer:
             Quantized model
         """
         print(f"\n📊 Applying INT8 Dynamic Quantization...")
+        print(f"  ℹ️  Moving model to CPU for quantization (MPS not supported)")
+
+        # Move model to CPU (INT8 quantization not supported on MPS)
+        original_device = next(self.model.parameters()).device
+        self.model = self.model.to('cpu')
 
         # Dynamic quantization (INT8)
         quantized_model = torch.quantization.quantize_dynamic(
@@ -147,6 +152,7 @@ class ModelOptimizer:
         )
 
         print(f"  ✓ INT8 quantization complete!")
+        print(f"  ℹ️  Quantized model will run on CPU (quantized models require CPU)")
 
         return quantized_model
 
@@ -174,10 +180,17 @@ class ModelOptimizer:
         batch_size = 4
         seq_length = 128
 
+        # Determine device: quantized models must use CPU
+        try:
+            model_device = next(model.parameters()).device
+        except StopIteration:
+            # Quantized model might not have regular parameters
+            model_device = torch.device('cpu')
+
         dummy_input = torch.randint(
             0, vocab_size,
             (batch_size, seq_length),
-            device=self.device
+            device=model_device
         )
 
         with torch.no_grad():
@@ -189,6 +202,7 @@ class ModelOptimizer:
         print(f"  ✓ Forward pass successful")
         print(f"    Input shape: {dummy_input.shape}")
         print(f"    Output shape: {logits.shape}")
+        print(f"    Device: {model_device}")
 
         # Measure inference time
         timing_stats = estimate_inference_time(
@@ -196,7 +210,7 @@ class ModelOptimizer:
             dummy_input,
             num_runs=num_samples,
             warmup=10,
-            device=self.device,
+            device=model_device,  # Use model's actual device
         )
 
         print_inference_stats(timing_stats)
@@ -298,8 +312,8 @@ class ModelOptimizer:
 
 
 def main():
-    # Define default paths as absolute paths
-    DEFAULT_MODEL_PATH = str(ML_TRAINING_ROOT / "models" / "checkpoints" / "tiny-transformer-init")
+    # Define default paths as absolute paths (use final trained model)
+    DEFAULT_MODEL_PATH = str(ML_TRAINING_ROOT / "models" / "checkpoints" / "final")
     DEFAULT_OUTPUT_DIR = str(ML_TRAINING_ROOT / "models" / "optimized")
 
     parser = argparse.ArgumentParser(
@@ -326,7 +340,8 @@ def main():
     parser.add_argument(
         "--quantize",
         action="store_true",
-        help="Apply INT8 quantization"
+        default=False,  # 양자화 비활성화 (CoreML에서 INT4 양자화 권장)
+        help="Apply INT8 quantization (default: False, use CoreML INT4 instead)"
     )
     parser.add_argument(
         "--skip_validation",
@@ -386,15 +401,15 @@ def main():
 
         optimization_steps.append("pruning")
 
-    # Step 2: Quantization (INT8)
+    # Step 2: Quantization (INT8) - Optional
     if args.quantize:
         print(f"\n{'='*70}")
         print(f"Step 2: INT8 Quantization")
         print(f"{'='*70}")
+        print(f"⚠️  Warning: INT8 quantization may not work on Mac (NoQEngine error)")
+        print(f"   Recommended: Use CoreML INT4 quantization instead")
 
-        # Use pruned model if available
-        base_model = pruned_model if args.prune_amount > 0 else optimizer.model
-
+        # Note: optimizer.quantize_to_int8() uses optimizer.model (which is already pruned if pruning was applied)
         quantized_model = optimizer.quantize_to_int8()
 
         # Estimate quantized size (rough estimate: ~25% of original)
@@ -425,6 +440,13 @@ def main():
         )
 
         optimization_steps.append("quantization")
+    else:
+        print(f"\n{'='*70}")
+        print(f"Step 2: INT8 Quantization - SKIPPED")
+        print(f"{'='*70}")
+        print(f"✓ INT8 quantization skipped (default)")
+        print(f"  Reason: Mac PyTorch compatibility issues (NoQEngine)")
+        print(f"  Alternative: CoreML INT4 quantization in next step (더 효율적!)")
 
     # Summary
     print(f"\n{'='*70}")
@@ -432,7 +454,7 @@ def main():
     print(f"{'='*70}")
 
     print(f"\nOptimization Summary:")
-    print(f"  Steps Applied: {', '.join(optimization_steps)}")
+    print(f"  Steps Applied: {', '.join(optimization_steps) if optimization_steps else 'pruning (quantization skipped)'}")
     print(f"  Original Size: {original_size:.2f} MB")
 
     if args.prune_amount > 0:
@@ -441,17 +463,21 @@ def main():
     if args.quantize:
         print(f"  After Quantization: {quantized_size:.2f} MB (estimated)")
         print(f"  Total Reduction: {total_reduction:.1f}%")
+    else:
+        print(f"  INT8 Quantization: Skipped (CoreML INT4 권장)")
 
     print(f"\n  Output Directory: {args.output}")
 
     print(f"\nNext Steps:")
     print(f"  1. Review optimization metrics in {args.output}/*/optimization_info.json")
-    print(f"  2. Run 5_export_coreml.py to convert to CoreML format")
+    print(f"  2. Run 5_export_coreml.py to convert to CoreML format (with INT4 quantization)")
     print(f"  3. Test CoreML model in Xcode")
 
     print(f"\n💡 Note:")
-    print(f"  - INT4 quantization will be applied during CoreML conversion")
-    print(f"  - Final CoreML model size target: 5-10 MB")
+    print(f"  - INT8 quantization skipped (Mac compatibility issues)")
+    print(f"  - INT4 quantization will be applied during CoreML conversion (더 효율적!)")
+    print(f"  - CoreML INT4: Apple Neural Engine 하드웨어 가속 지원")
+    print(f"  - Final CoreML model size target: 4-5 MB (INT4)")
     print(f"  - Current model is ready for CoreML export!")
 
 

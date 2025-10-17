@@ -5,6 +5,9 @@
 data/
 Data-Collection/data/*
 
+# 모델 파일 (용량이 크고 학습 결과물)
+ML-Training/models/
+
 # 로그 파일
 logs/
 Data-Collection/logs/*.logs

@@ -83,7 +83,7 @@ augmentation:
 
 # Model Checkpointing
 checkpointing:
-  output_dir: "models/checkpoints"
+  output_dir: "models/checkpoints"  # Relative to ML-Training/
   save_strategy: "steps"
   save_on_each_node: false
   resume_from_checkpoint: null  # Set to path to resume training
@@ -91,7 +91,7 @@ checkpointing:
 # Monitoring & Logging
 logging:
   report_to: "tensorboard"      # Use TensorBoard for visualization
-  logging_dir: "models/checkpoints/runs"
+  logging_dir: "models/checkpoints/runs"  # Relative to ML-Training/
   logging_first_step: true
 
 # Weights & Biases (Optional)
