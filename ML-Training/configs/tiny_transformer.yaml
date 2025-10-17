@@ -1,0 +1,62 @@
+# TinyTransformer Model Configuration
+# Based on TinyBERT-4 (2024-2025 research)
+# Target: 15M parameters, 5-10MB final size (INT4)
+
+model_name: "tiny-transformer-blog-detector"
+version: "2.0.0"
+
+# Architecture (TinyBERT-4 based)
+architecture:
+  vocab_size: 8000              # Korean tokenizer (Solar Pro 2 / Exaone 4.0)
+  hidden_size: 312              # Embedding dimension (BERT: 768, TinyBERT: 312)
+  num_hidden_layers: 4          # Transformer layers (BERT: 12, TinyBERT: 4)
+  num_attention_heads: 12       # Attention heads (BERT: 12)
+  intermediate_size: 1200       # FFN hidden size (BERT: 3072, TinyBERT: 1200)
+  max_position_embeddings: 128  # Max sequence length (BERT: 512)
+  type_vocab_size: 2            # Segment types
+  hidden_dropout_prob: 0.1      # Dropout rate
+  attention_probs_dropout_prob: 0.1
+
+# Classification Head
+classifier:
+  num_labels: 2                 # AI / HUMAN
+  hidden_dropout_prob: 0.1
+  classifier_dropout: 0.1
+
+# Model Statistics
+estimated_params: 15000000      # ~15M parameters
+estimated_size_fp32: 60         # MB
+estimated_size_int4: 15         # MB (after quantization)
+estimated_size_final: 7.5       # MB (after pruning)
+
+# Initialization
+initializer_range: 0.02
+layer_norm_eps: 1e-12
+
+# Special Tokens
+special_tokens:
+  pad_token: "[PAD]"
+  unk_token: "[UNK]"
+  cls_token: "[CLS]"
+  sep_token: "[SEP]"
+  mask_token: "[MASK]"
+
+# Performance Targets
+targets:
+  model_size_mb: 10             # < 10 MB final
+  inference_time_ms: 50         # < 50 ms
+  accuracy: 0.88                # > 88%
+  f1_score: 0.88
+
+# Tokenizer Settings
+tokenizer:
+  type: "sentencepiece"         # or "solar_pro_2", "exaone_4"
+  model_max_length: 128
+  do_lower_case: false          # Korean: preserve case
+  strip_accents: false
+
+# Device Settings
+device:
+  use_mps: true                 # Apple Silicon (M1/M2/M3/M4)
+  use_cuda: true                # NVIDIA GPU
+  fallback: "cpu"

@@ -1,0 +1,33 @@
+# 환경변수 파일 (API 키 포함)
+.env
+
+# 데이터 파일
+data/
+Data-Collection/data/*
+
+# 로그 파일
+logs/
+Data-Collection/logs/*.logs
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 가상환경
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

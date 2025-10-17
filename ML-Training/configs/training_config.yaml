@@ -1,0 +1,162 @@
+# Training Configuration for From Scratch Learning
+# Target: 10,297 samples (297 real + 10,000 synthetic)
+
+experiment_name: "tiny-transformer-from-scratch-v2"
+seed: 42
+
+# Data Paths
+data:
+  real_data: "/Users/taesooa/Desktop/Swift/Naver-Blog-AI-Detector/Naver-Blog-AI-Detector/Naver-Blog-AI-Detector-ML/Data-Preprocessing/data/processed/training_data.json"
+  synthetic_data: "/Users/taesooa/Desktop/Swift/Naver-Blog-AI-Detector/Naver-Blog-AI-Detector/Naver-Blog-AI-Detector-ML/ML-Training/data/synthetic/"
+  processed_data: "/Users/taesooa/Desktop/Swift/Naver-Blog-AI-Detector/Naver-Blog-AI-Detector/Naver-Blog-AI-Detector-ML/ML-Training/data/processed/"
+
+  # Split ratios (80% train, 10% val, 10% test)
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+  # Data sizes (approximate, based on 297 real samples)
+  # Note: Synthetic samples = 3x real samples (default in 1_generate_synthetic.py)
+  real_samples: 297
+  synthetic_samples: 891  # 297 * 3 = 891 (auto-calculated by script)
+  total_samples: 1188     # 297 + 891 = 1,188
+  train_samples: 950      # ~80% of 1,188
+  val_samples: 119        # ~10% of 1,188
+  test_samples: 119       # ~10% of 1,188
+
+# Training Hyperparameters (From Scratch)
+training:
+  num_train_epochs: 15          # Sufficient for convergence
+  per_device_train_batch_size: 32
+  per_device_eval_batch_size: 64
+  gradient_accumulation_steps: 4
+
+  learning_rate: 5.0e-4         # Higher LR for from-scratch training
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+
+  # Learning Rate Scheduler
+  lr_scheduler_type: "cosine"   # Cosine annealing
+  warmup_steps: 500             # Warmup for stable training
+  warmup_ratio: 0.06            # ~500/8237 ≈ 0.06
+
+  # Optimization
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+
+  # Mixed Precision (2x speedup)
+  fp16: false                   # Set true for NVIDIA GPU
+  bf16: false                   # Set true for A100/H100
+
+  # Logging & Checkpointing
+  logging_steps: 10             # Log every 10 steps for better monitoring
+  eval_steps: 100               # Evaluate every 100 steps
+  save_steps: 100               # Save every 100 steps
+  save_total_limit: 3           # Keep only best 3 checkpoints
+
+  # Evaluation
+  evaluation_strategy: "steps"
+  load_best_model_at_end: true
+  metric_for_best_model: "f1"
+  greater_is_better: true
+
+# Regularization (Prevent Overfitting)
+regularization:
+  dropout: 0.1
+  attention_dropout: 0.1
+  label_smoothing: 0.1          # 0.1 = 10% smoothing
+
+# Early Stopping
+early_stopping:
+  patience: 3                   # Stop if no improvement for 3 evals
+  threshold: 0.001              # Minimum improvement threshold
+
+# Data Augmentation (during training)
+augmentation:
+  enabled: true
+  techniques:
+    - "random_deletion"         # Delete random words (10% prob)
+    - "random_swap"             # Swap adjacent words (10% prob)
+    - "synonym_replacement"     # Replace with synonyms (5% prob)
+  augmentation_prob: 0.3        # Apply to 30% of samples
+
+# Model Checkpointing
+checkpointing:
+  output_dir: "models/checkpoints"
+  save_strategy: "steps"
+  save_on_each_node: false
+  resume_from_checkpoint: null  # Set to path to resume training
+
+# Monitoring & Logging
+logging:
+  report_to: "tensorboard"      # Use TensorBoard for visualization
+  logging_dir: "models/checkpoints/runs"
+  logging_first_step: true
+
+# Weights & Biases (Optional)
+wandb:
+  enabled: false                # Disabled - using TensorBoard
+  project: "naver-blog-ai-detector"
+  entity: null
+  run_name: null
+
+# Distributed Training (Optional)
+distributed:
+  local_rank: -1
+  ddp_backend: "nccl"
+  ddp_find_unused_parameters: false
+
+# Performance Optimization
+performance:
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+  remove_unused_columns: false
+
+  # Gradient Checkpointing (save memory)
+  gradient_checkpointing: false
+
+  # Automatic Mixed Precision
+  auto_find_batch_size: false
+
+# Evaluation Metrics
+metrics:
+  - "accuracy"
+  - "precision"
+  - "recall"
+  - "f1"
+  - "auc_roc"
+
+# Class Balance (AI vs HUMAN)
+class_weights:
+  enabled: true
+  ai_weight: 1.0
+  human_weight: 1.0             # Adjust if imbalanced
+
+# Inference Settings
+inference:
+  max_length: 128
+  padding: "max_length"
+  truncation: true
+  return_tensors: "pt"
+
+# Post-Training
+post_training:
+  # Pruning
+  pruning:
+    enabled: true
+    amount: 0.3                 # Prune 30% of weights
+    method: "l1_unstructured"
+
+  # Quantization (handled by 4_optimize.py)
+  quantization:
+    enabled: true
+    method: "int4"              # Options: int4, int8, gptq
+    granularity: "per_block"
+
+# CoreML Export (handled by 5_export_coreml.py)
+coreml:
+  minimum_deployment_target: "macOS14"
+  compute_precision: "float16"
+  quantization: "int4"
+  w8a8_mode: true               # Enable for A17 Pro/M4+
